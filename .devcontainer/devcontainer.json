@@ -1,0 +1,15 @@
+{
+  "name": "Kakeibo Backend",
+  "dockerFile": "Dockerfile",
+  "context": "..",
+  "postCreateCommand": "npm install",
+  "customizations": {
+    "vscode": {
+      "extensions": ["dbaeumer.vscode-eslint", "esbenp.prettier-vscode"],
+      "settings": {
+        "terminal.integrated.defaultProfile.linux": "bash"
+      }
+    }
+  },
+  "remoteUser": "node"
+}
