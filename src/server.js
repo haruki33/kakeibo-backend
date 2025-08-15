@@ -117,6 +117,21 @@ app.delete("/transactions/:id", async (req, res) => {
   }
 });
 
+app.get("/transactions/summary", async (req, res) => {
+  const year = req.query.year;
+
+  try {
+    const { rows } = await pool.query(
+      "SELECT EXTRACT(MONTH FROM date) as month, category_id, SUM(amount) as total_amount FROM transactions WHERE date >= to_date($1, 'YYYY') AND date < to_date($1, 'YYYY') + interval '1 year' GROUP BY month, category_id",
+      [year]
+    );
+    res.status(200).json(rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
 app.listen(process.env.PORT, () => {
   console.log(`Server running on port ${process.env.PORT}`);
 });
