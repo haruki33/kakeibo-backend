@@ -21,7 +21,9 @@ app.get("/", (req, res) => {
 /// categories
 app.get("/categories", async (req, res) => {
   try {
-    const { rows } = await pool.query("SELECT * FROM categories ORDER BY name");
+    const { rows } = await pool.query(
+      "SELECT * FROM categories ORDER BY CASE WHEN type = 'income' THEN 1 WHEN type = 'expense' THEN 2 ELSE 3 END, name"
+    );
     res.status(200).json(rows);
   } catch (err) {
     console.error(err);
@@ -38,6 +40,22 @@ app.post("/categories", async (req, res) => {
       [name, color, type]
     );
     res.status(201).json(rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.put("/categories/:id", async (req, res) => {
+  const { id } = req.params;
+  const { name, color, type } = req.body;
+
+  try {
+    const { rows } = await pool.query(
+      "UPDATE categories SET name = $1, color = $2, type = $3 WHERE id = $4 RETURNING *",
+      [name, color, type, id]
+    );
+    res.status(200).json(rows[0]);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Server error" });
