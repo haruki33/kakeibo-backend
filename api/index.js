@@ -3,6 +3,13 @@ import pkg from "pg";
 import cors from "cors";
 import dotenv from "dotenv";
 
+function renameKeys(objs) {
+  return objs.map(({ category_id, ...rest }) => ({
+    ...rest,
+    categoryId: category_id,
+  }));
+}
+
 dotenv.config();
 const { Pool } = pkg;
 
@@ -32,12 +39,13 @@ app.get("/categories", async (req, res) => {
 });
 
 app.post("/categories", async (req, res) => {
-  const { name, color, type } = req.body;
+  const { name, type } = req.body;
+  console.log(req.body);
 
   try {
     const { rows } = await pool.query(
-      "INSERT INTO categories (name, color, type) VALUES ($1, $2, $3) RETURNING *",
-      [name, color, type]
+      "INSERT INTO categories (name, type) VALUES ($1, $2) RETURNING *",
+      [name, type]
     );
     res.status(201).json(rows[0]);
   } catch (err) {
@@ -48,12 +56,12 @@ app.post("/categories", async (req, res) => {
 
 app.put("/categories/:id", async (req, res) => {
   const { id } = req.params;
-  const { name, color, type } = req.body;
+  const { name, type } = req.body;
 
   try {
     const { rows } = await pool.query(
-      "UPDATE categories SET name = $1, color = $2, type = $3 WHERE id = $4 RETURNING *",
-      [name, color, type, id]
+      "UPDATE categories SET name = $1, type = $2 WHERE id = $3 RETURNING *",
+      [name, type, id]
     );
     res.status(200).json(rows[0]);
   } catch (err) {
@@ -86,7 +94,9 @@ app.get("/transactions", async (req, res) => {
       "SELECT * FROM transactions WHERE date >= to_date($1, 'YYYY-MM') AND date < to_date($1, 'YYYY-MM') + interval '1 month' ORDER BY date",
       [month]
     );
-    res.status(200).json(rows);
+
+    const renamedRows = renameKeys(rows);
+    res.status(200).json(renamedRows);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Server error" });
@@ -101,7 +111,8 @@ app.post("/transactions", async (req, res) => {
       "INSERT INTO transactions (date, amount, type, category_id, memo) VALUES ($1, $2, $3, $4, $5) RETURNING *",
       [date, amount, type, categoryId, memo]
     );
-    res.status(201).json(rows[0]);
+    const renamedRows = renameKeys(rows);
+    res.status(200).json(renamedRows[0]);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Server error" });
@@ -117,7 +128,8 @@ app.put("/transactions/:id", async (req, res) => {
       "UPDATE transactions SET date = $1, amount = $2, type = $3, category_id = $4, memo = $5 WHERE id = $6 RETURNING *",
       [date, amount, type, categoryId, memo, id]
     );
-    res.status(201).json(rows[0]);
+    const renamedRows = renameKeys(rows);
+    res.status(200).json(renamedRows[0]);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Server error" });
@@ -132,7 +144,8 @@ app.delete("/transactions/:id", async (req, res) => {
       "DELETE FROM transactions WHERE id = $1 RETURNING *",
       [id]
     );
-    res.status(200).json(rows[0]);
+    const renamedRows = renameKeys(rows);
+    res.status(200).json(renamedRows[0]);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Server error" });
@@ -147,7 +160,9 @@ app.get("/transactions/summary", async (req, res) => {
       "SELECT EXTRACT(MONTH FROM date) as month, category_id, SUM(amount) as total_amount FROM transactions WHERE date >= to_date($1, 'YYYY') AND date < to_date($1, 'YYYY') + interval '1 year' GROUP BY month, category_id",
       [year]
     );
-    res.status(200).json(rows);
+
+    const renamedRows = renameKeys(rows);
+    res.status(200).json(renamedRows);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Server error" });
