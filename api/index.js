@@ -10,7 +10,18 @@ function renameKeys(objs) {
   }));
 }
 
-dotenv.config();
+function changeDateFormat(objs) {
+  return objs.map(({ date, ...rest }) => ({
+    ...rest,
+    date: [
+      date.getFullYear(),
+      String(date.getMonth() + 1).padStart(2, "0"),
+      String(date.getDate()).padStart(2, "0"),
+    ].join("-"),
+  }));
+}
+
+const dayStr = dotenv.config();
 const { Pool } = pkg;
 
 const pool = new Pool({
@@ -96,7 +107,8 @@ app.get("/transactions", async (req, res) => {
     );
 
     const renamedRows = renameKeys(rows);
-    res.status(200).json(renamedRows);
+    const formattedRows = changeDateFormat(renamedRows);
+    res.status(200).json(formattedRows);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Server error" });
@@ -112,7 +124,8 @@ app.post("/transactions", async (req, res) => {
       [date, amount, type, categoryId, memo]
     );
     const renamedRows = renameKeys(rows);
-    res.status(200).json(renamedRows[0]);
+    const formattedRows = changeDateFormat(renamedRows);
+    res.status(200).json(formattedRows[0]);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Server error" });
@@ -129,7 +142,8 @@ app.put("/transactions/:id", async (req, res) => {
       [date, amount, type, categoryId, memo, id]
     );
     const renamedRows = renameKeys(rows);
-    res.status(200).json(renamedRows[0]);
+    const formattedRows = changeDateFormat(renamedRows);
+    res.status(200).json(formattedRows[0]);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Server error" });
@@ -145,7 +159,8 @@ app.delete("/transactions/:id", async (req, res) => {
       [id]
     );
     const renamedRows = renameKeys(rows);
-    res.status(200).json(renamedRows[0]);
+    const formattedRows = changeDateFormat(renamedRows);
+    res.status(200).json(formattedRows[0]);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Server error" });
