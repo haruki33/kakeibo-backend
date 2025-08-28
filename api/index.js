@@ -5,8 +5,6 @@ import dotenv from "dotenv";
 import dotenvFlow from "dotenv-flow";
 dotenvFlow.config();
 
-console.log(process.env.DATABASE_URL);
-
 function renameKeys(objs) {
   return objs.map(({ category_id, ...rest }) => ({
     ...rest,
