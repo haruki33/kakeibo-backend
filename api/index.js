@@ -2,6 +2,10 @@ import express from "express";
 import pkg from "pg";
 import cors from "cors";
 import dotenv from "dotenv";
+import dotenvFlow from "dotenv-flow";
+dotenvFlow.config();
+
+console.log(process.env.DATABASE_URL);
 
 function renameKeys(objs) {
   return objs.map(({ category_id, ...rest }) => ({
