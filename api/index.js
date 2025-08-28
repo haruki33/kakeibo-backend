@@ -51,7 +51,6 @@ app.get("/categories", async (req, res) => {
 
 app.post("/categories", async (req, res) => {
   const { name, type } = req.body;
-  console.log(req.body);
 
   try {
     const { rows } = await pool.query(
@@ -74,6 +73,24 @@ app.put("/categories/:id", async (req, res) => {
       "UPDATE categories SET name = $1, type = $2 WHERE id = $3 RETURNING *",
       [name, type, id]
     );
+    res.status(200).json(rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.put("/categories/:id/delete", async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const { rows } = await pool.query(
+      "UPDATE categories SET is_deleted = true WHERE id = $1 RETURNING *",
+      [id]
+    );
+    if (rows.length === 0) {
+      return res.status(404).json({ error: "Category not found" });
+    }
     res.status(200).json(rows[0]);
   } catch (err) {
     console.error(err);
