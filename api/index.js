@@ -52,12 +52,12 @@ app.get("/categories", async (req, res) => {
 });
 
 app.post("/categories", async (req, res) => {
-  const { name, type } = req.body;
+  const { name, type, description } = req.body;
 
   try {
     const { rows } = await pool.query(
-      "INSERT INTO categories (name, type) VALUES ($1, $2) RETURNING *",
-      [name, type]
+      "INSERT INTO categories (name, type, description) VALUES ($1, $2, $3) RETURNING *",
+      [name, type, description]
     );
     res.status(201).json(rows[0]);
   } catch (err) {
@@ -68,12 +68,12 @@ app.post("/categories", async (req, res) => {
 
 app.put("/categories/:id", async (req, res) => {
   const { id } = req.params;
-  const { name, type } = req.body;
+  const { name, type, description } = req.body;
 
   try {
     const { rows } = await pool.query(
-      "UPDATE categories SET name = $1, type = $2 WHERE id = $3 RETURNING *",
-      [name, type, id]
+      "UPDATE categories SET name = $1, type = $2, description = $3 WHERE id = $4 RETURNING *",
+      [name, type, description, id]
     );
     res.status(200).json(rows[0]);
   } catch (err) {
