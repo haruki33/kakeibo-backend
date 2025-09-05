@@ -203,6 +203,23 @@ app.get("/transactions/summary", async (req, res) => {
   }
 });
 
+app.get("/transactions/:id/:month", async (req, res) => {
+  const { id, month } = req.params;
+
+  try {
+    const { rows } = await pool.query(
+      "SELECT * FROM transactions WHERE category_id = $1 AND EXTRACT(MONTH FROM date) = $2",
+      [id, month]
+    );
+
+    const renamedRows = renameKeys(rows);
+    res.status(200).json(renamedRows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
 if (process.env.NODE_ENV !== "production") {
   app.listen(process.env.PORT, () => {
     console.log(`Server running on port ${process.env.PORT}`);
