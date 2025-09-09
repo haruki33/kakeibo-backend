@@ -3,6 +3,8 @@ import pkg from "pg";
 import cors from "cors";
 import dotenv from "dotenv";
 import dotenvFlow from "dotenv-flow";
+import bcrypt from "bcrypt";
+import jwt from "jsonwebtoken";
 dotenvFlow.config();
 
 function renameKeys(objs) {
@@ -38,13 +40,91 @@ app.get("/", (req, res) => {
   res.send("Hello World!");
 });
 
+/// login
+app.post("/signup", async (req, res) => {
+  const { name, email, password } = req.body;
+
+  try {
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const { rows } = await pool.query(
+      "INSERT INTO users (name, email, password) VALUES ($1, $2, $3) RETURNING *",
+      [name, email, hashedPassword]
+    );
+    const user = rows[0];
+    res.status(201).json({ id: user.id, name: user.name, email: user.email });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.post("/signin", async (req, res) => {
+  const { email, password } = req.body;
+
+  try {
+    const { rows } = await pool.query("SELECT * FROM users WHERE email = $1", [
+      email,
+    ]);
+    if (rows.length === 0) {
+      return res
+        .status(401)
+        .json({ error: "Invalid email or password (no user found)" });
+    }
+    const user = rows[0];
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) {
+      return res.status(401).json({ error: "Invalid email or password" });
+    }
+
+    ///ここってSECRET_KEYを環境変数にしたほうがいい？
+    ///userの情報をtokenに入れるのは良くない？
+    const token = jwt.sign(
+      { userId: user.id, name: user.name, email: user.email },
+      "SECRET_KEY",
+      { expiresIn: "31d" } // 31 days
+    );
+    res.status(200).json({ token });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
 /// categories
+app.use((req, res, next) => {
+  const bearer = req.headers.authorization;
+  if (!bearer) {
+    return res.status(401).json({ error: "認証が必要です" });
+  }
+
+  const [, token] = bearer.split(" ");
+  if (!token) {
+    return res.status(401).json({ error: "トークンが無効です" });
+  }
+
+  try {
+    const decoded = jwt.verify(token, "SECRET_KEY");
+    if (typeof decoded === "object" && decoded.userId) {
+      req.userId = decoded.userId;
+      next();
+    } else {
+      return res.status(401).json({ error: "トークンが無効です" });
+    }
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
 app.get("/categories", async (req, res) => {
   try {
+    const userId = req.userId;
+
     const { rows } = await pool.query(
-      "SELECT * FROM categories ORDER BY CASE WHEN type = 'income' THEN 1 WHEN type = 'expense' THEN 2 ELSE 3 END, name"
+      "SELECT * FROM categories WHERE user_id = $1 ORDER BY CASE WHEN type = 'income' THEN 1 WHEN type = 'expense' THEN 2 ELSE 3 END, name",
+      [userId]
     );
-    res.status(200).json(rows);
+    return res.status(200).json(rows);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Server error" });
@@ -55,9 +135,11 @@ app.post("/categories", async (req, res) => {
   const { name, type, description } = req.body;
 
   try {
+    const userId = req.userId;
+
     const { rows } = await pool.query(
-      "INSERT INTO categories (name, type, description) VALUES ($1, $2, $3) RETURNING *",
-      [name, type, description]
+      "INSERT INTO categories (name, type, description, user_id) VALUES ($1, $2, $3, $4) RETURNING *",
+      [name, type, description, userId]
     );
     res.status(201).json(rows[0]);
   } catch (err) {
@@ -71,10 +153,19 @@ app.put("/categories/:id", async (req, res) => {
   const { name, type, description } = req.body;
 
   try {
+    const userId = req.userId;
+
     const { rows } = await pool.query(
-      "UPDATE categories SET name = $1, type = $2, description = $3 WHERE id = $4 RETURNING *",
-      [name, type, description, id]
+      "UPDATE categories SET name = $1, type = $2, description = $3 WHERE id = $4 AND (user_id = $5 OR user_id IS NULL) RETURNING *",
+      [name, type, description, id, userId]
     );
+
+    if (rows.length === 0) {
+      return res
+        .status(404)
+        .json({ error: "カテゴリーが見つからないか、編集権限がありません" });
+    }
+
     res.status(200).json(rows[0]);
   } catch (err) {
     console.error(err);
@@ -86,9 +177,11 @@ app.put("/categories/:id/delete", async (req, res) => {
   const { id } = req.params;
 
   try {
+    const userId = req.userId;
+
     const { rows } = await pool.query(
-      "UPDATE categories SET is_deleted = true WHERE id = $1 RETURNING *",
-      [id]
+      "UPDATE categories SET is_deleted = true WHERE id = $1 AND user_id = $2 RETURNING *",
+      [id, userId]
     );
     if (rows.length === 0) {
       return res.status(404).json({ error: "Category not found" });
@@ -104,9 +197,10 @@ app.delete("/categories/:id", async (req, res) => {
   const { id } = req.params;
 
   try {
+    const userId = req.userId;
     const { rows } = await pool.query(
-      "DELETE FROM categories WHERE id = $1 RETURNING *",
-      [id]
+      "DELETE FROM categories WHERE id = $1 AND user_id = $2 RETURNING *",
+      [id, userId]
     );
     res.status(200).json(rows[0]);
   } catch (err) {
@@ -120,9 +214,10 @@ app.get("/transactions", async (req, res) => {
   const month = req.query.month;
 
   try {
+    const userId = req.userId;
     const { rows } = await pool.query(
-      "SELECT * FROM transactions WHERE date >= to_date($1, 'YYYY-MM') AND date < to_date($1, 'YYYY-MM') + interval '1 month' ORDER BY date",
-      [month]
+      "SELECT * FROM transactions WHERE date >= to_date($1, 'YYYY-MM') AND date < to_date($1, 'YYYY-MM') + interval '1 month' AND user_id = $2 ORDER BY date",
+      [month, userId]
     );
 
     const renamedRows = renameKeys(rows);
@@ -138,9 +233,10 @@ app.post("/transactions", async (req, res) => {
   const { date, amount, type, categoryId, memo } = req.body;
 
   try {
+    const userId = req.userId;
     const { rows } = await pool.query(
-      "INSERT INTO transactions (date, amount, type, category_id, memo) VALUES ($1, $2, $3, $4, $5) RETURNING *",
-      [date, amount, type, categoryId, memo]
+      "INSERT INTO transactions (date, amount, type, category_id, memo, user_id) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *",
+      [date, amount, type, categoryId, memo, userId]
     );
     const renamedRows = renameKeys(rows);
     const formattedRows = changeDateFormat(renamedRows);
@@ -156,9 +252,10 @@ app.put("/transactions/:id", async (req, res) => {
   const { date, amount, type, categoryId, memo } = req.body;
 
   try {
+    const userId = req.userId;
     const { rows } = await pool.query(
-      "UPDATE transactions SET date = $1, amount = $2, type = $3, category_id = $4, memo = $5 WHERE id = $6 RETURNING *",
-      [date, amount, type, categoryId, memo, id]
+      "UPDATE transactions SET date = $1, amount = $2, type = $3, category_id = $4, memo = $5 WHERE id = $6 AND user_id = $7 RETURNING *",
+      [date, amount, type, categoryId, memo, id, userId]
     );
     const renamedRows = renameKeys(rows);
     const formattedRows = changeDateFormat(renamedRows);
@@ -173,9 +270,10 @@ app.delete("/transactions/:id", async (req, res) => {
   const { id } = req.params;
 
   try {
+    const userId = req.userId;
     const { rows } = await pool.query(
-      "DELETE FROM transactions WHERE id = $1 RETURNING *",
-      [id]
+      "DELETE FROM transactions WHERE id = $1 AND user_id = $2 RETURNING *",
+      [id, userId]
     );
     const renamedRows = renameKeys(rows);
     const formattedRows = changeDateFormat(renamedRows);
@@ -190,9 +288,10 @@ app.get("/transactions/summary", async (req, res) => {
   const year = req.query.year;
 
   try {
+    const userId = req.userId;
     const { rows } = await pool.query(
-      "SELECT EXTRACT(MONTH FROM date) as month, category_id, SUM(amount) as total_amount FROM transactions WHERE date >= to_date($1, 'YYYY') AND date < to_date($1, 'YYYY') + interval '1 year' GROUP BY month, category_id",
-      [year]
+      "SELECT EXTRACT(MONTH FROM date) as month, category_id, SUM(amount) as total_amount FROM transactions WHERE date >= to_date($1, 'YYYY') AND date < to_date($1, 'YYYY') + interval '1 year' AND user_id = $2 GROUP BY month, category_id",
+      [year, userId]
     );
 
     const renamedRows = renameKeys(rows);
@@ -207,9 +306,10 @@ app.get("/transactions/:id/:month", async (req, res) => {
   const { id, month } = req.params;
 
   try {
+    const userId = req.userId;
     const { rows } = await pool.query(
-      "SELECT * FROM transactions WHERE category_id = $1 AND EXTRACT(MONTH FROM date) = $2",
-      [id, month]
+      "SELECT * FROM transactions WHERE category_id = $1 AND EXTRACT(MONTH FROM date) = $2 AND user_id = $3",
+      [id, month, userId]
     );
 
     const renamedRows = renameKeys(rows);
