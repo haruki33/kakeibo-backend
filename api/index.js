@@ -5,6 +5,7 @@ import dotenv from "dotenv";
 import dotenvFlow from "dotenv-flow";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
+import cookieParser from "cookie-parser";
 dotenvFlow.config();
 
 function renameKeys(objs) {
@@ -33,31 +34,21 @@ const pool = new Pool({
 });
 
 const app = express();
-app.use(cors());
+app.use(
+  cors({
+    origin: process.env.CORS_ORIGIN,
+    credentials: true,
+  })
+);
+
 app.use(express.json());
+app.use(cookieParser());
 
 app.get("/", (req, res) => {
   res.send("Hello World!");
 });
 
 /// login
-app.post("/signup", async (req, res) => {
-  const { name, email, password } = req.body;
-
-  try {
-    const hashedPassword = await bcrypt.hash(password, 10);
-    const { rows } = await pool.query(
-      "INSERT INTO users (name, email, password) VALUES ($1, $2, $3) RETURNING *",
-      [name, email, hashedPassword]
-    );
-    const user = rows[0];
-    res.status(201).json({ id: user.id, name: user.name, email: user.email });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Server error" });
-  }
-});
-
 app.post("/signin", async (req, res) => {
   const { email, password } = req.body;
 
@@ -76,21 +67,76 @@ app.post("/signin", async (req, res) => {
       return res.status(401).json({ error: "Invalid email or password" });
     }
 
-    ///ここってSECRET_KEYを環境変数にしたほうがいい？
-    ///userの情報をtokenに入れるのは良くない？
-    const token = jwt.sign(
-      { userId: user.id, name: user.name, email: user.email },
-      "SECRET_KEY",
-      { expiresIn: "31d" } // 31 days
+    const accessToken = jwt.sign(
+      { userId: user.id },
+      process.env.ACCESS_TOKEN_SECRET,
+      { expiresIn: "30s" }
     );
-    res.status(200).json({ token });
+    const refreshToken = jwt.sign(
+      { userId: user.id },
+      process.env.REFRESH_TOKEN_SECRET,
+      { expiresIn: "30d" }
+    );
+
+    res.cookie("refreshToken", refreshToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production" ? true : false,
+      sameSite: "strict",
+      path: "/",
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+    });
+
+    res
+      .status(200)
+      .json({ token: accessToken, name: user.name, email: user.email });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Server error" });
   }
 });
 
-/// categories
+app.post("/signup", async (req, res) => {
+  const { name, email, password } = req.body;
+
+  try {
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const { rows } = await pool.query(
+      "INSERT INTO users (name, email, password) VALUES ($1, $2, $3) RETURNING *",
+      [name, email, hashedPassword]
+    );
+    const user = rows[0];
+    res.status(201).json({ id: user.id, name: user.name, email: user.email });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.post("/refresh_access_token", (req, res) => {
+  const refreshToken = req.cookies.refreshToken;
+
+  if (!refreshToken) {
+    return res.status(401).json({ error: "認証が必要です" });
+  }
+
+  try {
+    const decoded = jwt.verify(refreshToken, process.env.REFRESH_TOKEN_SECRET);
+
+    if (typeof decoded === "object" && decoded.userId) {
+      const accessToken = jwt.sign(
+        { userId: decoded.userId },
+        process.env.ACCESS_TOKEN_SECRET,
+        { expiresIn: "30s" }
+      );
+      return res.status(200).json({ accessToken });
+    }
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+/// check token middleware
 app.use((req, res, next) => {
   const bearer = req.headers.authorization;
   if (!bearer) {
@@ -103,7 +149,8 @@ app.use((req, res, next) => {
   }
 
   try {
-    const decoded = jwt.verify(token, "SECRET_KEY");
+    const decoded = jwt.verify(token, process.env.ACCESS_TOKEN_SECRET);
+
     if (typeof decoded === "object" && decoded.userId) {
       req.userId = decoded.userId;
       next();
@@ -111,11 +158,15 @@ app.use((req, res, next) => {
       return res.status(401).json({ error: "トークンが無効です" });
     }
   } catch (err) {
+    if (err.name === "TokenExpiredError") {
+      return res.status(401).json({ error: "Token expired" });
+    }
     console.error(err);
     res.status(500).json({ error: "Server error" });
   }
 });
 
+/// categories
 app.get("/categories", async (req, res) => {
   try {
     const userId = req.userId;
