@@ -81,7 +81,7 @@ app.post("/signin", async (req, res) => {
     res.cookie("refreshToken", refreshToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production" ? true : false,
-      sameSite: "strict",
+      sameSite: "None",
       path: "/",
       maxAge: 7 * 24 * 60 * 60 * 1000,
     });
@@ -115,6 +115,7 @@ app.post("/signup", async (req, res) => {
 app.post("/refresh_access_token", (req, res) => {
   const refreshToken = req.cookies.refreshToken;
 
+  //　このエラーが吐かれている＝refreshTokenが送られてきていない
   if (!refreshToken) {
     return res.status(401).json({ error: "認証が必要です" });
   }
