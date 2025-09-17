@@ -70,17 +70,17 @@ app.post("/signin", async (req, res) => {
     const accessToken = jwt.sign(
       { userId: user.id },
       process.env.ACCESS_TOKEN_SECRET,
-      { expiresIn: "30s" }
+      { expiresIn: "10m" }
     );
     const refreshToken = jwt.sign(
       { userId: user.id },
       process.env.REFRESH_TOKEN_SECRET,
-      { expiresIn: "30d" }
+      { expiresIn: "7d" }
     );
 
     res.cookie("refreshToken", refreshToken, {
       httpOnly: true,
-      secure: true, // 常にtrueに設定（HTTPSのみ）
+      secure: true,
       sameSite: "None",
       path: "/",
       maxAge: 7 * 24 * 60 * 60 * 1000,
@@ -115,7 +115,6 @@ app.post("/signup", async (req, res) => {
 app.post("/refresh_access_token", (req, res) => {
   const refreshToken = req.cookies.refreshToken;
 
-  //　このエラーが吐かれている＝refreshTokenが送られてきていない
   if (!refreshToken) {
     return res.status(401).json({ error: "認証が必要です" });
   }
@@ -127,7 +126,7 @@ app.post("/refresh_access_token", (req, res) => {
       const accessToken = jwt.sign(
         { userId: decoded.userId },
         process.env.ACCESS_TOKEN_SECRET,
-        { expiresIn: "30s" }
+        { expiresIn: "10m" }
       );
       return res.status(200).json({ accessToken });
     }
