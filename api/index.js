@@ -262,14 +262,29 @@ app.delete("/categories/:id", async (req, res) => {
 
 /// transactions
 app.get("/transactions", async (req, res) => {
-  const month = req.query.month;
-
   try {
     const userId = req.userId;
-    const { rows } = await pool.query(
-      "SELECT * FROM transactions WHERE date >= to_date($1, 'YYYY-MM') AND date < to_date($1, 'YYYY-MM') + interval '1 month' AND user_id = $2 ORDER BY date",
-      [month, userId]
-    );
+    let rows;
+
+    if (req.query.month) {
+      const month = req.query.month;
+      const result = await pool.query(
+        "SELECT * FROM transactions WHERE date >= to_date($1, 'YYYY-MM') AND date < to_date($1, 'YYYY-MM') + interval '1 month' AND user_id = $2 ORDER BY date",
+        [month, userId]
+      );
+      rows = result.rows;
+    } else if (req.query.categoryId) {
+      const categoryId = req.query.categoryId;
+      const result = await pool.query(
+        "SELECT * FROM transactions WHERE category_id = $1 AND user_id = $2 ORDER BY date",
+        [categoryId, userId]
+      );
+      rows = result.rows;
+    } else {
+      return res
+        .status(400)
+        .json({ error: "month または categoryId パラメータが必要です" });
+    }
 
     const renamedRows = renameKeys(rows);
     const formattedRows = changeDateFormat(renamedRows);
