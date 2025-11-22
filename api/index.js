@@ -217,11 +217,23 @@ app.put("/categories/:id", jwtAuthMiddleware, async (req, res) => {
   const { name, type, description, registration_date, amount } = req.body;
 
   try {
+    const registration_next_date = new Date();
+    registration_next_date.setDate(registration_date);
+    registration_next_date.setMonth(registration_next_date.getMonth() + 1);
     const userId = req.userId;
 
     const { rows } = await pool.query(
-      "UPDATE categories SET name = $1, type = $2, description = $3, registration_date = $4, amount = $5 WHERE id = $6 AND (user_id = $7 OR user_id IS NULL) RETURNING *",
-      [name, type, description, registration_date, amount, id, userId]
+      "UPDATE categories SET name = $1, type = $2, description = $3, registration_date = $4, registration_next_date = $5, amount = $6 WHERE id = $7 AND (user_id = $8 OR user_id IS NULL) RETURNING *",
+      [
+        name,
+        type,
+        description,
+        registration_date,
+        registration_next_date,
+        amount,
+        id,
+        userId,
+      ]
     );
 
     if (rows.length === 0) {
