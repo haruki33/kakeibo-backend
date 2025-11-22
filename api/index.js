@@ -137,7 +137,7 @@ app.post("/refresh_access_token", (req, res) => {
 });
 
 /// check token middleware
-app.use((req, res, next) => {
+const jwtAuthMiddleware = (req, res, next) => {
   const bearer = req.headers.authorization;
   if (!bearer) {
     return res.status(401).json({ error: "認証が必要です" });
@@ -164,10 +164,10 @@ app.use((req, res, next) => {
     console.error(err);
     res.status(500).json({ error: "Server error" });
   }
-});
+};
 
 /// categories
-app.get("/categories", async (req, res) => {
+app.get("/categories", jwtAuthMiddleware, async (req, res) => {
   try {
     const userId = req.userId;
 
@@ -175,6 +175,7 @@ app.get("/categories", async (req, res) => {
       "SELECT * FROM categories WHERE user_id = $1 ORDER BY CASE WHEN type = 'income' THEN 1 WHEN type = 'expense' THEN 2 ELSE 3 END, name",
       [userId]
     );
+
     return res.status(200).json(rows);
   } catch (err) {
     console.error(err);
@@ -182,15 +183,27 @@ app.get("/categories", async (req, res) => {
   }
 });
 
-app.post("/categories", async (req, res) => {
-  const { name, type, description } = req.body;
+app.post("/categories", jwtAuthMiddleware, async (req, res) => {
+  const { name, type, description, registration_date, amount } = req.body;
 
   try {
     const userId = req.userId;
 
+    const registration_next_date = new Date();
+    registration_next_date.setDate(registration_date);
+    registration_next_date.setMonth(registration_next_date.getMonth() + 1);
+
     const { rows } = await pool.query(
-      "INSERT INTO categories (name, type, description, user_id) VALUES ($1, $2, $3, $4) RETURNING *",
-      [name, type, description, userId]
+      "INSERT INTO categories (name, type, description, user_id, registration_date, registration_next_date, amount) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *",
+      [
+        name,
+        type,
+        description,
+        userId,
+        registration_date,
+        registration_next_date,
+        amount,
+      ]
     );
     res.status(201).json(rows[0]);
   } catch (err) {
@@ -199,16 +212,16 @@ app.post("/categories", async (req, res) => {
   }
 });
 
-app.put("/categories/:id", async (req, res) => {
+app.put("/categories/:id", jwtAuthMiddleware, async (req, res) => {
   const { id } = req.params;
-  const { name, type, description } = req.body;
+  const { name, type, description, registration_date, amount } = req.body;
 
   try {
     const userId = req.userId;
 
     const { rows } = await pool.query(
-      "UPDATE categories SET name = $1, type = $2, description = $3 WHERE id = $4 AND (user_id = $5 OR user_id IS NULL) RETURNING *",
-      [name, type, description, id, userId]
+      "UPDATE categories SET name = $1, type = $2, description = $3, registration_date = $4, amount = $5 WHERE id = $6 AND (user_id = $7 OR user_id IS NULL) RETURNING *",
+      [name, type, description, registration_date, amount, id, userId]
     );
 
     if (rows.length === 0) {
@@ -224,7 +237,7 @@ app.put("/categories/:id", async (req, res) => {
   }
 });
 
-app.put("/categories/:id/delete", async (req, res) => {
+app.put("/categories/:id/delete", jwtAuthMiddleware, async (req, res) => {
   const { id } = req.params;
 
   try {
@@ -244,7 +257,7 @@ app.put("/categories/:id/delete", async (req, res) => {
   }
 });
 
-app.delete("/categories/:id", async (req, res) => {
+app.delete("/categories/:id", jwtAuthMiddleware, async (req, res) => {
   const { id } = req.params;
 
   try {
@@ -261,7 +274,7 @@ app.delete("/categories/:id", async (req, res) => {
 });
 
 /// transactions
-app.get("/transactions", async (req, res) => {
+app.get("/transactions", jwtAuthMiddleware, async (req, res) => {
   try {
     const userId = req.userId;
     let rows;
@@ -295,7 +308,7 @@ app.get("/transactions", async (req, res) => {
   }
 });
 
-app.post("/transactions", async (req, res) => {
+app.post("/transactions", jwtAuthMiddleware, async (req, res) => {
   const { date, amount, type, categoryId, memo } = req.body;
 
   try {
@@ -313,7 +326,7 @@ app.post("/transactions", async (req, res) => {
   }
 });
 
-app.put("/transactions/:id", async (req, res) => {
+app.put("/transactions/:id", jwtAuthMiddleware, async (req, res) => {
   const { id } = req.params;
   const { date, amount, type, categoryId, memo } = req.body;
 
@@ -332,7 +345,7 @@ app.put("/transactions/:id", async (req, res) => {
   }
 });
 
-app.delete("/transactions/:id", async (req, res) => {
+app.delete("/transactions/:id", jwtAuthMiddleware, async (req, res) => {
   const { id } = req.params;
 
   try {
@@ -350,7 +363,60 @@ app.delete("/transactions/:id", async (req, res) => {
   }
 });
 
-app.get("/transactions/summary", async (req, res) => {
+const verifyCronToken = (req, res, next) => {
+  const cronToken = req.headers["authorization"];
+
+  if (!cronToken || cronToken !== `Bearer ${process.env.CRON_SECRET}`) {
+    return res.status(401).json({ message: "Unauthorized" });
+  }
+  next();
+};
+
+app.post("/transactions/cron", verifyCronToken, async (req, res) => {
+  try {
+    const today = new Date();
+    const todayISOString = today.toISOString().split("T")[0];
+
+    const recurringTransactions = await pool.query(
+      "SELECT * FROM categories WHERE is_deleted = false AND registration_next_date = $1",
+      [todayISOString]
+    );
+
+    if (recurringTransactions.rows.length === 0) {
+      return res
+        .status(200)
+        .json({ message: "No recurring transactions for today" });
+    }
+
+    recurringTransactions.rows.map(async (recurringTransaction) => {
+      await pool.query(
+        "INSERT INTO transactions (date, amount, type, category_id, memo, user_id) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *",
+        [
+          todayISOString,
+          recurringTransaction.amount,
+          recurringTransaction.type,
+          recurringTransaction.id,
+          "定期登録",
+          recurringTransaction.user_id,
+        ]
+      );
+
+      await pool.query(
+        "UPDATE categories SET registration_next_date = registration_next_date + interval '1 month' WHERE id = $1 AND user_id = $2",
+        [recurringTransaction.id, recurringTransaction.user_id]
+      );
+    });
+
+    res.status(200).json({
+      message: "Recurring transactions added for today",
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.get("/transactions/summary", jwtAuthMiddleware, async (req, res) => {
   const year = req.query.year;
 
   try {
@@ -368,7 +434,7 @@ app.get("/transactions/summary", async (req, res) => {
   }
 });
 
-app.get("/transactions/:id/:month", async (req, res) => {
+app.get("/transactions/:id/:month", jwtAuthMiddleware, async (req, res) => {
   const { id, month } = req.params;
 
   try {
