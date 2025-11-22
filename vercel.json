@@ -10,5 +10,11 @@
       "src": "/(.*)",
       "dest": "/api/index.js"
     }
+  ],
+  "crons": [
+    {
+      "path": "/transactions/cron",
+      "schedule": "1 0 * * *"
+    }
   ]
 }
