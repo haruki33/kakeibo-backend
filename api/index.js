@@ -377,56 +377,51 @@ app.delete("/transactions/:id", jwtAuthMiddleware, async (req, res) => {
 
 const verifyCronToken = (req, res, next) => {
   const cronToken = req.headers["authorization"];
+  const expectedHeader = `Bearer ${process.env.CRON_SECRET}`;
 
-  if (!cronToken || cronToken !== `Bearer ${process.env.CRON_SECRET}`) {
+  if (!cronToken || cronToken !== expectedHeader) {
     return res.status(401).json({ message: "Unauthorized" });
   }
   next();
 };
 
-app.post("/transactions/cron", verifyCronToken, async (req, res) => {
+const cronHandler = async (req, res) => {
   try {
     const today = new Date();
     const todayISOString = today.toISOString().split("T")[0];
 
-    const recurringTransactions = await pool.query(
+    const { rows: recurring } = await pool.query(
       "SELECT * FROM categories WHERE is_deleted = false AND registration_next_date = $1",
       [todayISOString]
     );
 
-    if (recurringTransactions.rows.length === 0) {
+    if (recurring.length === 0) {
       return res
         .status(200)
         .json({ message: "No recurring transactions for today" });
     }
 
-    recurringTransactions.rows.map(async (recurringTransaction) => {
+    const promises = recurring.map(async (rec) => {
       await pool.query(
-        "INSERT INTO transactions (date, amount, type, category_id, memo, user_id) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *",
-        [
-          todayISOString,
-          recurringTransaction.amount,
-          recurringTransaction.type,
-          recurringTransaction.id,
-          "定期登録",
-          recurringTransaction.user_id,
-        ]
+        "INSERT INTO transactions (date, amount, type, category_id, memo, user_id) VALUES ($1, $2, $3, $4, $5, $6)",
+        [todayISOString, rec.amount, rec.type, rec.id, "定期登録", rec.user_id]
       );
 
       await pool.query(
         "UPDATE categories SET registration_next_date = registration_next_date + interval '1 month' WHERE id = $1 AND user_id = $2",
-        [recurringTransaction.id, recurringTransaction.user_id]
+        [rec.id, rec.user_id]
       );
     });
 
-    res.status(200).json({
-      message: "Recurring transactions added for today",
-    });
+    await Promise.all(promises);
+
+    res.status(200).json({ message: "Recurring transactions processed" });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Server error" });
   }
-});
+};
+app.get("/transactions/cron", verifyCronToken, cronHandler);
 
 app.get("/transactions/summary", jwtAuthMiddleware, async (req, res) => {
   const year = req.query.year;
