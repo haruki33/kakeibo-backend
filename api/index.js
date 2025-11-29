@@ -183,16 +183,32 @@ app.get("/categories", jwtAuthMiddleware, async (req, res) => {
   }
 });
 
+const INVALID_VALUES = Object.freeze(["", null]);
+const convertDateStringToNumber = (date) => {
+  return INVALID_VALUES.includes(date) ? null : Number(date);
+};
+const setNextRegistrationDate = (date) => {
+  if (INVALID_VALUES.includes(date)) return null;
+
+  const nextDate = new Date();
+  nextDate.setDate(Number(date));
+  nextDate.setMonth(nextDate.getMonth() + 1);
+  return nextDate;
+};
+const setAmount = (date, amount) => {
+  return INVALID_VALUES.includes(date) ? null : Number(amount);
+};
+
 app.post("/categories", jwtAuthMiddleware, async (req, res) => {
+  const userId = req.userId;
   const { name, type, description, registration_date, amount } = req.body;
 
+  const convertedRegistrationDate =
+    convertDateStringToNumber(registration_date);
+  const nextRegistrationDate = setNextRegistrationDate(registration_date);
+  const amountValue = setAmount(registration_date, amount);
+
   try {
-    const userId = req.userId;
-
-    const registration_next_date = new Date();
-    registration_next_date.setDate(registration_date);
-    registration_next_date.setMonth(registration_next_date.getMonth() + 1);
-
     const { rows } = await pool.query(
       "INSERT INTO categories (name, type, description, user_id, registration_date, registration_next_date, amount) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *",
       [
@@ -200,9 +216,9 @@ app.post("/categories", jwtAuthMiddleware, async (req, res) => {
         type,
         description,
         userId,
-        registration_date,
-        registration_next_date,
-        amount,
+        convertedRegistrationDate,
+        nextRegistrationDate,
+        amountValue,
       ]
     );
     res.status(201).json(rows[0]);
@@ -213,24 +229,25 @@ app.post("/categories", jwtAuthMiddleware, async (req, res) => {
 });
 
 app.put("/categories/:id", jwtAuthMiddleware, async (req, res) => {
+  const userId = req.userId;
   const { id } = req.params;
   const { name, type, description, registration_date, amount } = req.body;
 
-  try {
-    const registration_next_date = new Date();
-    registration_next_date.setDate(registration_date);
-    registration_next_date.setMonth(registration_next_date.getMonth() + 1);
-    const userId = req.userId;
+  const convertedRegistrationDate =
+    convertDateStringToNumber(registration_date);
+  const nextRegistrationDate = setNextRegistrationDate(registration_date);
+  const amountValue = setAmount(registration_date, amount);
 
+  try {
     const { rows } = await pool.query(
       "UPDATE categories SET name = $1, type = $2, description = $3, registration_date = $4, registration_next_date = $5, amount = $6 WHERE id = $7 AND (user_id = $8 OR user_id IS NULL) RETURNING *",
       [
         name,
         type,
         description,
-        registration_date,
-        registration_next_date,
-        amount,
+        convertedRegistrationDate,
+        nextRegistrationDate,
+        amountValue,
         id,
         userId,
       ]
