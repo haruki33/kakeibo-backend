@@ -476,6 +476,75 @@ app.get("/transactions/:id/:month", jwtAuthMiddleware, async (req, res) => {
   }
 });
 
+app.get("/profile", jwtAuthMiddleware, async (req, res) => {
+  const userId = req.userId;
+  try {
+    const { rows } = await pool.query(
+      "SELECT name, email FROM users WHERE id = $1",
+      [userId]
+    );
+    res.status(200).json(rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.put("/profile", jwtAuthMiddleware, async (req, res) => {
+  const userId = req.userId;
+  const { name, email } = req.body;
+  try {
+    const { rows } = await pool.query(
+      "UPDATE users SET name = $1, email = $2 WHERE id = $3 RETURNING *",
+      [name, email, userId]
+    );
+    res.status(200).json(rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.post("/checkPassword", jwtAuthMiddleware, async (req, res) => {
+  const userId = req.userId;
+  const { currentPassword } = req.body;
+
+  try {
+    const { rows } = await pool.query("SELECT * FROM users WHERE id = $1", [
+      userId,
+    ]);
+    if (rows.length === 0) {
+      return res.status(401).json({ error: "no user found" });
+    }
+    const user = rows[0];
+    const isMatch = await bcrypt.compare(currentPassword, user.password);
+    if (!isMatch) {
+      return res.status(401).json({ error: "Invalid email or password" });
+    }
+
+    res.status(200).json({ message: "Password is correct" });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.put("/setNewPassword", jwtAuthMiddleware, async (req, res) => {
+  const userId = req.userId;
+  const { newPassword } = req.body;
+  try {
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    const { rows } = await pool.query(
+      "UPDATE users SET password = $1 WHERE id = $2 RETURNING *",
+      [hashedPassword, userId]
+    );
+    res.status(200).json(rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
 if (process.env.NODE_ENV !== "production") {
   app.listen(process.env.PORT, () => {
     console.log(`Server running on port ${process.env.PORT}`);
