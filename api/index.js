@@ -286,6 +286,26 @@ app.put("/categories/:id/delete", jwtAuthMiddleware, async (req, res) => {
   }
 });
 
+app.put("/categories/:id/restore", jwtAuthMiddleware, async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const userId = req.userId;
+
+    const { rows } = await pool.query(
+      "UPDATE categories SET is_deleted = false WHERE id = $1 AND user_id = $2 RETURNING *",
+      [id, userId]
+    );
+    if (rows.length === 0) {
+      return res.status(404).json({ error: "Category not found" });
+    }
+    res.status(200).json(rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
 app.delete("/categories/:id", jwtAuthMiddleware, async (req, res) => {
   const { id } = req.params;
 
