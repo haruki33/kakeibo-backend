@@ -434,7 +434,6 @@ const cronHandler = async (req, res) => {
     };
     const todayString = today.toLocaleDateString("ja-JP", options);
     const formattedTodayString = todayString.replace(/\//g, "-");
-    console.log(formattedTodayString);
 
     const { rows: recurring } = await pool.query(
       "SELECT * FROM categories WHERE is_deleted = false AND registration_next_date = $1",
