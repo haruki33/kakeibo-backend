@@ -425,11 +425,20 @@ const verifyCronToken = (req, res, next) => {
 const cronHandler = async (req, res) => {
   try {
     const today = new Date();
-    const todayISOString = today.toISOString().split("T")[0];
+
+    const options = {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      timeZone: "Asia/Tokyo",
+    };
+    const todayString = today.toLocaleDateString("ja-JP", options);
+    const formattedTodayString = todayString.replace(/\//g, "-");
+    console.log(formattedTodayString);
 
     const { rows: recurring } = await pool.query(
       "SELECT * FROM categories WHERE is_deleted = false AND registration_next_date = $1",
-      [todayISOString]
+      [formattedTodayString]
     );
 
     if (recurring.length === 0) {
@@ -441,7 +450,14 @@ const cronHandler = async (req, res) => {
     const promises = recurring.map(async (rec) => {
       await pool.query(
         "INSERT INTO transactions (date, amount, type, category_id, memo, user_id) VALUES ($1, $2, $3, $4, $5, $6)",
-        [todayISOString, rec.amount, rec.type, rec.id, "定期登録", rec.user_id]
+        [
+          formattedTodayString,
+          rec.amount,
+          rec.type,
+          rec.id,
+          "定期登録",
+          rec.user_id,
+        ]
       );
 
       await pool.query(
